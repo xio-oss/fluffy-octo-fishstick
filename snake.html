@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>贪吃蛇小游戏</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+    color: #eaf2f5;
+    padding: 16px;
+  }
+
+  h1 {
+    font-size: 28px;
+    letter-spacing: 4px;
+    text-shadow: 0 2px 8px rgba(0,0,0,.4);
+    user-select: none;
+  }
+
+  .panel {
+    display: flex;
+    gap: 28px;
+    align-items: center;
+    font-size: 16px;
+    user-select: none;
+  }
+  .stat { text-align: center; }
+  .stat .value { font-size: 24px; font-weight: 700; color: #ffd166; }
+  .stat.high .value { color: #06d6a0; }
+
+  #wrap {
+    position: relative;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 10px 40px rgba(0,0,0,.45);
+    background: #0b1a1f;
+  }
+
+  canvas {
+    display: block;
+    width: min(90vw, 60vh, 480px);
+    height: min(90vw, 60vh, 480px);
+    image-rendering: pixelated;
+  }
+
+  #overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: rgba(6, 16, 20, .82);
+    backdrop-filter: blur(3px);
+    text-align: center;
+    padding: 16px;
+  }
+  #overlay.hidden { display: none; }
+
+  #overlay .big { font-size: 34px; font-weight: 800; letter-spacing: 2px; }
+  #overlay .sub { font-size: 15px; color: #b8cdd6; max-width: 80%; line-height: 1.6; }
+
+  button {
+    border: none;
+    cursor: pointer;
+    background: #06d6a0;
+    color: #06322a;
+    font-size: 18px;
+    font-weight: 700;
+    padding: 12px 34px;
+    border-radius: 999px;
+    letter-spacing: 2px;
+    transition: transform .12s, box-shadow .12s, background .12s;
+    box-shadow: 0 4px 16px rgba(6,214,160,.35);
+  }
+  button:hover { transform: translateY(-2px) scale(1.03); background: #2ce8b4; }
+  button:active { transform: translateY(0) scale(.98); }
+  button.bot { background: #ffd166; color: #4a3208; box-shadow: 0 4px 16px rgba(255,209,102,.35); padding: 9px 24px; font-size: 15px; }
+  button.bot:hover { background: #ffe08a; }
+
+  .hint { font-size: 14px; color: #7fa3ae; user-select: none; line-height: 1.8; text-align: center; }
+  kbd {
+    background: #1d3a44; color: #d9ecf2;
+    padding: 2px 8px; border-radius: 6px;
+    font-family: inherit; font-size: 13px;
+    border-bottom: 2px solid #0c232b;
+  }
+
+  #toast {
+    position: fixed; top: 14px; left: 50%;
+    transform: translateX(-50%) translateY(-80px);
+    background: rgba(6,214,160,.95); color: #06322a;
+    font-weight: 700; padding: 10px 22px; border-radius: 999px;
+    transition: transform .25s ease; z-index: 10;
+    box-shadow: 0 4px 14px rgba(0,0,0,.3);
+  }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<h1>🐍 贪吃蛇</h1>
+
+<div class="panel">
+  <div class="stat">得分 <div class="value" id="score">0</div></div>
+  <div class="stat high">最高分 <div class="value" id="high">0</div></div>
+  <div class="stat">速度 <div class="value" id="speed">1</div></div>
+</div>
+
+<div id="wrap">
+  <canvas id="game" width="400" height="400"></canvas>
+  <div id="overlay">
+    <div class="big" id="ovTitle">🐍 贪吃蛇</div>
+    <div class="sub" id="ovMsg">控制蛇吃到食物来长大<br>注意不要撞到墙壁或自己的身体</div>
+    <button id="btnStart">开始游戏</button>
+  </div>
+</div>
+
+<div class="hint">
+  方向键 / WASD 控制方向 &nbsp;·&nbsp; 空格键暂停 &nbsp;·&nbsp; 移动端点击屏幕下方的方向按钮
+</div>
+
+<div style="margin-top:-4px">
+  <button id="btnBot" class="bot">🤖 AI 替我玩一把</button>
+</div>
+
+<div id="toast"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+
+  // 棋盘尺寸与格数
+  const GRID = 20;                 // 20 x 20 格
+  const CELL = canvas.width / GRID;
+
+  // DOM
+  const elScore = document.getElementById("score");
+  const elHigh  = document.getElementById("high");
+  const elSpeed = document.getElementById("speed");
+  const overlay = document.getElementById("overlay");
+  const ovTitle = document.getElementById("ovTitle");
+  const ovMsg   = document.getElementById("ovMsg");
+  const btn     = document.getElementById("btnStart");
+  const btnBot  = document.getElementById("btnBot");
+  const toast   = document.getElementById("toast");
+
+  // 状态
+  let snake = [];        // 蛇身（头部在前），元素 {x, y}
+  let dir = { x: 1, y: 0 };       // 当前移动方向
+  let nextDir = { x: 1, y: 0 };   // 本帧内暂存的方向
+  let food = null;
+  let score = 0;
+  let high = Number(localStorage.getItem("snake-high") || 0);
+  let running = false;   // true 表示正在游玩
+  let bot = false;       // true 表示当前是 AI 在玩
+  let paused = false;
+  let gameOver = false;
+  let timer = null;
+  let baseMs = 140;      // 初始每步间隔
+  let eating = 0;        // 用于吃到食物时的简单闪烁效果
+
+  elHigh.textContent = high;
+  draw();
+
+  // ---------- 工具 ----------
+  function rndPos() {
+    return { x: Math.floor(Math.random() * GRID), y: Math.floor(Math.random() * GRID) };
+  }
+
+  function equal(a, b) { return a.x === b.x && a.y === b.y; }
+
+  // 在空白格上生成食物
+  function spawnFood() {
+    const free = [];
+    for (let x = 0; x < GRID; x++) {
+      for (let y = 0; y < GRID; y++) {
+        if (!snake.some(s => equal(s, { x, y }))) free.push({ x, y });
+      }
+    }
+    if (free.length === 0) return null; // 蛇占满了棋盘 → 胜利
+    return free[Math.floor(Math.random() * free.length)];
+  }
+
+  // ---------- AI 机器人(规则与手动游玩完全一致) ----------
+  const BOT_DIRS = [
+    { x: 0, y: -1 }, { x: 0, y: 1 },
+    { x: -1, y: 0 }, { x: 1, y: 0 }
+  ];
+  const keyOf = (p) => p.y * GRID + p.x;
+  const inGrid = (p) => p.x >= 0 && p.x < GRID && p.y >= 0 && p.y < GRID;
+  const manh = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+
+  // 假设头在 nh、身体为 body(移动后)。尾巴那格下一步会移开,所以不算墙。
+  // 洪水填充统计可达空间,并判断能否够到自己的尾巴(够到 = 大概率安全)。
+  function botAnalyze(nh, body) {
+    const obs = new Set();
+    for (let i = 0; i < body.length - 1; i++) obs.add(keyOf(body[i]));
+    const seen = new Set([keyOf(nh)]);
+    const stack = [nh];
+    while (stack.length) {
+      const p = stack.pop();
+      for (const d of BOT_DIRS) {
+        const n = { x: p.x + d.x, y: p.y + d.y };
+        if (!inGrid(n)) continue;
+        const k = keyOf(n);
+        if (seen.has(k) || obs.has(k)) continue;
+        seen.add(k);
+        stack.push(n);
+      }
+    }
+    return { area: seen.size, tailReachable: seen.has(keyOf(body[body.length - 1])) };
+  }
+
+  // BFS:蛇头到食物的最短路径(食物被身体包死则返回 null)
+  function botPathToFood() {
+    const head = snake[0];
+    if (!food) return null;
+    const obs = new Set();
+    for (let i = 0; i < snake.length - 1; i++) obs.add(keyOf(snake[i]));
+    if (obs.has(keyOf(food))) return null;
+    const prev = new Map();
+    const seen = new Set([keyOf(head)]);
+    const q = [head];
+    while (q.length) {
+      const p = q.shift();
+      if (equal(p, food)) {
+        const path = [p];
+        let cur = p;
+        while (!equal(cur, head)) {
+          cur = prev.get(keyOf(cur));
+          path.push(cur);
+        }
+        return path.reverse();
+      }
+      for (const d of BOT_DIRS) {
+        const n = { x: p.x + d.x, y: p.y + d.y };
+        if (!inGrid(n)) continue;
+        const k = keyOf(n);
+        if (seen.has(k) || obs.has(k)) continue;
+        seen.add(k);
+        prev.set(k, p);
+        q.push(n);
+      }
+    }
+    return null;
+  }
+
+  // 决策打分:吃到食物 +400; 在去食物的最短路径上且安全 +250;
+  // 够得到尾巴 +100、够不到 -80; 空间越大越好; 离食物越近越好(小权重)。
+  function botChooseDir() {
+    const head = snake[0];
+    const path = botPathToFood();
+    const onPath = (nh) => path && path.length > 1 && equal(nh, path[1]);
+    let best = null;
+    let bestScore = -Infinity;
+    for (const d of BOT_DIRS) {
+      const nh = { x: head.x + d.x, y: head.y + d.y };
+      if (!inGrid(nh)) continue;
+      const eatingNow = food && equal(nh, food);
+      const limit = snake.length - (eatingNow ? 0 : 1);
+      let hit = false;
+      for (let i = 0; i < limit; i++) {
+        if (equal(snake[i], nh)) { hit = true; break; }
+      }
+      if (hit) continue;
+      const next = [nh].concat(snake);
+      if (!eatingNow) next.pop();
+      const { area, tailReachable } = botAnalyze(nh, next);
+      let sc = 0;
+      if (eatingNow) sc += 400;
+      if (onPath(nh) && tailReachable) sc += 250;
+      sc += tailReachable ? 100 : -80;
+      sc += area * 0.3;
+      sc -= manh(nh, food || nh) * 3;
+      if (sc > bestScore) { bestScore = sc; best = d; }
+    }
+    return best;
+  }
+
+  // 让 AI 接管:重开一局,步频更快,方便观看
+  function startBot() {
+    bot = true;
+    reset();
+    running = true;
+    baseMs = 80;
+    overlay.classList.add("hidden");
+    clearInterval(timer);
+    timer = setInterval(step, baseMs);
+    showToast("🤖 AI 开始表演，点空格可暂停围观");
+  }
+
+  // ---------- 游戏控制 ----------
+  function reset() {
+    const c = Math.floor(GRID / 2);
+    snake = [
+      { x: c, y: c },
+      { x: c - 1, y: c },
+      { x: c - 2, y: c }
+    ];
+    dir = { x: 1, y: 0 };
+    nextDir = { x: 1, y: 0 };
+    score = 0;
+    paused = false;
+    gameOver = false;
+    food = spawnFood();
+    baseMs = 140;
+    updateHud();
+    draw();
+  }
+
+  function start() {
+    bot = false; // 手动开始 = 人类模式
+    reset();
+    running = true;
+    overlay.classList.add("hidden");
+    clearInterval(timer);
+    timer = setInterval(step, baseMs);
+  }
+
+  function endGame(won) {
+    running = false;
+    gameOver = true;
+    clearInterval(timer);
+    if (score > high) {
+      high = score;
+      localStorage.setItem("snake-high", String(high));
+      elHigh.textContent = high;
+      showToast("🎉 新纪录！" + high + " 分");
+    }
+    ovTitle.textContent = won ? "🏆 你赢了！" : "💀 游戏结束";
+    ovMsg.innerHTML = won
+      ? "太厉害了，蛇填满了整张棋盘！"
+      : "最终得分 <b>" + score + "</b>，再接再厉！";
+    btn.textContent = "再来一局";
+    overlay.classList.remove("hidden");
+    draw();
+  }
+
+  function step() {
+    if (paused) return;
+    // AI 模式:每一步由机器人决定方向
+    if (bot) {
+      const bd = botChooseDir();
+      if (bd) nextDir = bd;
+    }
+    dir = nextDir; // 方向在步进时生效
+
+    const head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
+
+    // 撞墙
+    if (head.x < 0 || head.x >= GRID || head.y < 0 || head.y >= GRID) {
+      endGame(false);
+      return;
+    }
+    // 撞自己（注意：尾巴即将离开的那格不算撞）
+    if (snake.some((s, i) => i < snake.length - 1 && equal(s, head))) {
+      endGame(false);
+      return;
+    }
+
+    snake.unshift(head);
+
+    if (food && equal(head, food)) {
+      // 吃到了：不弹尾巴
+      score += 10;
+      eating = 2;
+      food = spawnFood();
+      if (!food) { // 胜利
+        endGame(true);
+        return;
+      }
+      // 提速，最快约 60ms 一步
+      baseMs = Math.max(60, baseMs - 4);
+      clearInterval(timer);
+      timer = setInterval(step, baseMs);
+      updateHud();
+    } else {
+      snake.pop();
+    }
+
+    updateHud();
+    draw();
+  }
+
+  function updateHud() {
+    elScore.textContent = score;
+    elSpeed.textContent = Math.round(140 / baseMs * 10) / 10;
+  }
+
+  function togglePause() {
+    if (!running || gameOver) return;
+    paused = !paused;
+    if (paused) {
+      ovTitle.textContent = "⏸ 已暂停";
+      ovMsg.textContent = "按空格键或点击继续";
+      btn.textContent = "继续游戏";
+      overlay.classList.remove("hidden");
+      draw();
+    } else {
+      overlay.classList.add("hidden");
+    }
+  }
+
+  // ---------- 绘制 ----------
+  function draw() {
+    // 背景棋盘格
+    for (let x = 0; x < GRID; x++) {
+      for (let y = 0; y < GRID; y++) {
+        ctx.fillStyle = (x + y) % 2 === 0 ? "#0f242b" : "#0c1f25";
+        ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+      }
+    }
+
+    // 蛇
+    snake.forEach((seg, i) => {
+      if (i === 0) {
+        ctx.fillStyle = eating > 0 ? "#7dffb2" : "#06d6a0";
+      } else {
+        const t = i / snake.length;
+        ctx.fillStyle = i % 2 === 0 ? "#06a57c" : "#088a68";
+      }
+      const pad = i === 0 ? 1.5 : 2.5;
+      const r = (CELL - pad * 2) / 2;
+      roundRect(seg.x * CELL + pad, seg.y * CELL + pad, r * 2, r * 2, 6);
+      // 画眼睛
+      if (i === 0) {
+        ctx.fillStyle = "#04231c";
+        const ex = seg.x * CELL + CELL / 2 + dir.x * 3.5;
+        const ey = seg.y * CELL + CELL / 2 + dir.y * 3.5;
+        ctx.beginPath();
+        ctx.arc(ex - dir.y * 3.5, ey - dir.x * 3.5, 2.2, 0, Math.PI * 2);
+        ctx.arc(ex + dir.y * 3.5, ey + dir.x * 3.5, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+    if (eating > 0) eating--;
+
+    // 食物
+    if (food) {
+      const pulse = 2 + Math.sin(Date.now() / 220) * 1.2;
+      ctx.save();
+      ctx.shadowColor = "rgba(255,107,107,.8)";
+      ctx.shadowBlur = 8;
+      ctx.fillStyle = "#ff6b6b";
+      ctx.beginPath();
+      ctx.arc(food.x * CELL + CELL / 2, food.y * CELL + CELL / 2, CELL / 2 - 3 + pulse * 0.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      // 高光
+      ctx.fillStyle = "rgba(255,255,255,.55)";
+      ctx.beginPath();
+      ctx.arc(food.x * CELL + CELL / 2 - 2.5, food.y * CELL + CELL / 2 - 2.5, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 暂停时加一层遮罩
+    if (paused) {
+      ctx.fillStyle = "rgba(6,16,20,.35)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+  }
+
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // 食物动画用的循环（只有在没有 step 驱动的绘制时才有用，这里仅做点缀）
+  setInterval(function () {
+    if (running && !paused && !gameOver) return; // step() 已在画
+    if (food && !running) draw();                // 开场画面让食物呼吸
+  }, 120);
+
+  // ---------- 输入 ----------
+  const KEYMAP = {
+    ArrowUp:    { x: 0, y: -1 }, KeyW: { x: 0, y: -1 },
+    ArrowDown:  { x: 0, y: 1 },  KeyS: { x: 0, y: 1 },
+    ArrowLeft:  { x: -1, y: 0 }, KeyA: { x: -1, y: 0 },
+    ArrowRight: { x: 1, y: 0 },  KeyD: { x: 1, y: 0 }
+  };
+
+  function setDirection(nd) {
+    if (bot) return; // AI 控制中,忽略键盘
+    if (!running || gameOver) return;
+    // 禁止直接反向
+    if (nd.x === -dir.x && nd.y === -dir.y) return;
+    // 避免在同一帧内连按导致反向
+    if (nd.x === -nextDir.x && nd.y === -nextDir.y) return;
+    nextDir = nd;
+  }
+
+  document.addEventListener("keydown", function (e) {
+    if (KEYMAP[e.code]) {
+      e.preventDefault();
+      setDirection(KEYMAP[e.code]);
+    } else if (e.code === "Space") {
+      e.preventDefault();
+      togglePause();
+    } else if (e.code === "Enter" || e.code === "NumpadEnter") {
+      if (!running || gameOver) {
+        e.preventDefault();
+        start();
+      }
+    }
+  });
+
+  // 防止页面滚动（移动端）与手机端方向按钮
+  const touchWrap = document.createElement("div");
+  touchWrap.style.cssText = "display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-top:6px;user-select:none;";
+  const btnStyle = "min-width:64px;padding:14px 0;font-size:22px;background:#17333c;color:#eaf2f5;border-radius:12px;box-shadow:none;letter-spacing:0;";
+  ["↑", "↓", "←", "→"].forEach(function (label, i) {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.style.cssText = btnStyle;
+    const d = [{ x: 0, y: -1 }, { x: 0, y: 1 }, { x: -1, y: 0 }, { x: 1, y: 0 }][i];
+    b.addEventListener("pointerdown", function (e) {
+      e.preventDefault();
+      if (!running && !gameOver) start();
+      setDirection(d);
+    });
+    touchWrap.appendChild(b);
+  });
+  document.body.appendChild(touchWrap);
+
+  // 页面上其它按钮
+  btn.addEventListener("click", function () {
+    if (running && !gameOver && paused) { togglePause(); return; }
+    start();
+  });
+  btnBot.addEventListener("click", function () {
+    startBot();
+  });
+
+  // ---------- Toast ----------
+  let toastTimer = null;
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toast.classList.remove("show"); }, 2200);
+  }
+
+  // 首次绘制
+  reset();
+})();
+</script>
+</body>
+</html>
