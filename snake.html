@@ -37,6 +37,7 @@
   .stat { text-align: center; }
   .stat .value { font-size: 24px; font-weight: 700; color: #ffd166; }
   .stat.high .value { color: #06d6a0; }
+  .stat.games .value { color: #7ec8e3; }
 
   #wrap {
     position: relative;
@@ -115,6 +116,7 @@
 <div class="panel">
   <div class="stat">得分 <div class="value" id="score">0</div></div>
   <div class="stat high">最高分 <div class="value" id="high">0</div></div>
+  <div class="stat games">局数 <div class="value" id="games">0</div></div>
   <div class="stat">速度 <div class="value" id="speed">1</div></div>
 </div>
 
@@ -151,6 +153,7 @@
   // DOM
   const elScore = document.getElementById("score");
   const elHigh  = document.getElementById("high");
+  const elGames = document.getElementById("games");
   const elSpeed = document.getElementById("speed");
   const overlay = document.getElementById("overlay");
   const ovTitle = document.getElementById("ovTitle");
@@ -165,7 +168,9 @@
   let nextDir = { x: 1, y: 0 };   // 本帧内暂存的方向
   let food = null;
   let score = 0;
-  let high = Number(localStorage.getItem("snake-high") || 0);
+  // 记录保存在 localStorage,跨局、跨页面刷新都不会清零,只有点【重置记录】才会清
+  let high = Number(localStorage.getItem("snake-high") || 0);   // 最高分
+  let games = Number(localStorage.getItem("snake-games") || 0); // 累计局数
   let running = false;   // true 表示正在游玩
   let bot = false;       // true 表示当前是 AI 在玩
   let paused = false;
@@ -175,6 +180,7 @@
   let eating = 0;        // 用于吃到食物时的简单闪烁效果
 
   elHigh.textContent = high;
+  elGames.textContent = games;
   draw();
 
   // ---------- 工具 ----------
@@ -336,6 +342,10 @@
     running = false;
     gameOver = true;
     clearInterval(timer);
+    // 每结束一局,局数 +1 并保存(手动局和 AI 局都算;只统计真正结束的局)
+    games += 1;
+    localStorage.setItem("snake-games", String(games));
+    elGames.textContent = games;
     if (score > high) {
       high = score;
       localStorage.setItem("snake-high", String(high));
