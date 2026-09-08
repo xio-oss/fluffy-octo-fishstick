@@ -89,6 +89,9 @@
   button:active { transform: translateY(0) scale(.98); }
   button.bot { background: #ffd166; color: #4a3208; box-shadow: 0 4px 16px rgba(255,209,102,.35); padding: 9px 24px; font-size: 15px; }
   button.bot:hover { background: #ffe08a; }
+  button.danger { background: #e05353; color: #fff; box-shadow: 0 4px 16px rgba(224,83,83,.35); padding: 9px 24px; font-size: 15px; }
+  button.danger:hover { background: #f06a6a; }
+  button.danger.armed { background: #fff; color: #c62828; border: 2px solid #e05353; padding: 7px 22px; }
 
   .hint { font-size: 14px; color: #7fa3ae; user-select: none; line-height: 1.8; text-align: center; }
   kbd {
@@ -133,8 +136,9 @@
   方向键 / WASD 控制方向 &nbsp;·&nbsp; 空格键暂停 &nbsp;·&nbsp; 移动端点击屏幕下方的方向按钮
 </div>
 
-<div style="margin-top:-4px">
+<div style="margin-top:-4px;display:flex;gap:14px;justify-content:center;flex-wrap:wrap">
   <button id="btnBot" class="bot">🤖 AI 替我玩一把</button>
+  <button id="btnReset" class="danger">🧹 重置记录</button>
 </div>
 
 <div id="toast"></div>
@@ -160,6 +164,7 @@
   const ovMsg   = document.getElementById("ovMsg");
   const btn     = document.getElementById("btnStart");
   const btnBot  = document.getElementById("btnBot");
+  const btnReset = document.getElementById("btnReset");
   const toast   = document.getElementById("toast");
 
   // 状态
@@ -560,6 +565,36 @@
   });
   btnBot.addEventListener("click", function () {
     startBot();
+  });
+  // 重置计分记录:清空最高分与局数(对当前正在进行的这一局没有影响)
+  let resetArmed = false;
+  let resetTimer = null;
+  function resetRecords() {
+    high = 0;
+    games = 0;
+    localStorage.removeItem("snake-high");
+    localStorage.removeItem("snake-games");
+    elHigh.textContent = high;
+    elGames.textContent = games;
+    btnReset.classList.remove("armed");
+    btnReset.textContent = "🧹 重置记录";
+    showToast("🧹 记录已重置：最高分 0 · 局数 0");
+  }
+  btnReset.addEventListener("click", function () {
+    if (resetArmed) {           // 第二次点击 → 真正执行
+      resetArmed = false;
+      clearTimeout(resetTimer);
+      resetRecords();
+      return;
+    }
+    resetArmed = true;          // 第一次点击 → 进入确认状态
+    btnReset.textContent = "⚠️ 再点一次确认";
+    btnReset.classList.add("armed");
+    resetTimer = setTimeout(function () { // 3 秒不点则取消
+      resetArmed = false;
+      btnReset.classList.remove("armed");
+      btnReset.textContent = "🧹 重置记录";
+    }, 3000);
   });
 
   // ---------- Toast ----------
